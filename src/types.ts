@@ -1,12 +1,9 @@
-export type SalesInvolvedFilter = 'any' | 'yes' | 'no';
-
 export interface NodeTypeColor {
   label: string;
   color: string;
 }
 
 export interface TopologyPanelOptions {
-  salesInvolvedFilter: SalesInvolvedFilter;
   nodeTypeColors: NodeTypeColor[];
 }
 
@@ -17,7 +14,6 @@ export interface TopologyPanelOptions {
 // open-ended set of labels you'd see loading an arbitrary exploration
 // dataset, which is why there's no auto-generated fallback color here.
 export const defaultTopologyPanelOptions: TopologyPanelOptions = {
-  salesInvolvedFilter: 'any',
   nodeTypeColors: [
     { label: 'Desk', color: '#3b82f6' },
     { label: 'Venue', color: '#8b5cf6' },

@@ -1,6 +1,5 @@
 import { Node, Edge, MarkerType } from 'reactflow';
 import { DataFrame } from '@grafana/data';
-import { SalesInvolvedFilter } from '../types';
 
 export interface RawNode {
   id: string;
@@ -105,19 +104,6 @@ function buildEdgeShortLabel(type: string, props: Record<string, any>): string {
     bits.push(`[${props.desks.join(', ')}]`);
   }
   return bits.length > 0 ? bits.join(' ') : type;
-}
-
-// Edges with no conditionKey always pass through — they're unconditional
-// for whichever desk(s) they belong to (e.g. MBS's ION->BBG leg). Edges
-// that do carry one are only shown when the filter matches, or when the
-// filter is 'any'.
-export function filterBySalesInvolved(rawRels: RawRelationship[], filter: SalesInvolvedFilter): RawRelationship[] {
-  if (filter === 'any') return rawRels;
-  const wantValue = filter === 'yes';
-  return rawRels.filter((r) => {
-    if (r.properties?.conditionKey !== 'salesInvolved') return true;
-    return r.properties?.conditionValue === wantValue;
-  });
 }
 
 export function toFlowElements(

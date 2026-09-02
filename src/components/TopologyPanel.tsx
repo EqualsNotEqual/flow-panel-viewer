@@ -3,7 +3,7 @@ import { PanelProps } from '@grafana/data';
 import ReactFlow, { Background, Controls, Node, Edge, NodeChange } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { TopologyPanelOptions } from '../types';
-import { fromDataFrames, filterBySalesInvolved, toFlowElements } from '../utils/graphData';
+import { fromDataFrames, toFlowElements } from '../utils/graphData';
 import { layout } from '../utils/layout';
 import { findAllPaths } from '../utils/pathfinding';
 import { TopologyNode } from './TopologyNode';
@@ -43,12 +43,11 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
 
   const { nodes, edges } = useMemo(() => {
     const { nodes: rawNodes, relationships: rawRels } = fromDataFrames(data.series);
-    const filteredRels = filterBySalesInvolved(rawRels, options.salesInvolvedFilter);
-    const { nodes: flowNodes, edges: flowEdges } = toFlowElements(rawNodes, filteredRels, labelColors);
+    const { nodes: flowNodes, edges: flowEdges } = toFlowElements(rawNodes, rawRels, labelColors);
     const laidOut = layout(flowNodes, flowEdges);
     const withDrags = laidOut.map((n) => (draggedPositions[n.id] ? { ...n, position: draggedPositions[n.id] } : n));
     return { nodes: withDrags, edges: flowEdges };
-  }, [data.series, options.salesInvolvedFilter, labelColors, draggedPositions]);
+  }, [data.series, labelColors, draggedPositions]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     // We only care about persisting drags — selection/dimension changes

@@ -2,19 +2,19 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "panel",
   "name": "Flow Panel",
-  "id": "tradeflow-flow-panel",
+  "id": "flow-panel-viewer",
   "info": {
     "keywords": ["panel", "graph", "topology", "trading", "reactflow"],
-    "description": "Read-only graph view of any Cypher query result (trade-processing topology or otherwise), driven by Grafana's own Queries tab via the neo4j datasource. See TradeFlow Maintenance for editing.",
-    "author": { "name": "rshashi" },
+    "description": "Read-only graph view of any Cypher query result (trade-processing topology or otherwise), driven by Grafana's own Queries tab via the neo4j datasource. See Flow Panel Regulator for editing.",
+    "author": { "name": "EqualsNotEqual" },
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
     "links": [],
     "screenshots": [],
-    "version": "0.3.0",
-    "updated": "2026-09-01"
+    "version": "0.4.0",
+    "updated": "2026-09-02"
   },
   "dependencies": {
     "grafanaDependency": ">=11.0.0",

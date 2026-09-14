@@ -1,17 +1,17 @@
 import { Edge } from 'reactflow';
 
 // Enumerates every simple path (no repeated nodes) between two node ids,
-// treating edges as undirected — mirrors the undirected variable-length
-// traversal semantics already used server-side for the desk/product/
-// destination intersection filter in api/src/routes/graph.js. Returns one
-// array of edge ids per distinct path found.
-export function findAllPaths(edges: Edge[], fromId: string, toId: string, maxHops = 6): string[][] {
+// following edges only in their stored direction (source -> target). Chains
+// like SENDS_TRADE_TO represent a real, one-way trade flow -- treating them
+// as undirected let path-selection "cheat" backwards through a shared
+// downstream node (e.g. hopping through Impact in reverse to connect two
+// otherwise-unrelated nodes), surfacing paths no trade would ever actually
+// take. Returns one array of edge ids per distinct path found.
+export function findAllPaths(edges: Edge[], fromId: string, toId: string, maxHops = 10): string[][] {
   const adjacency = new Map<string, Array<{ neighborId: string; edgeId: string }>>();
   for (const e of edges) {
     if (!adjacency.has(e.source)) adjacency.set(e.source, []);
-    if (!adjacency.has(e.target)) adjacency.set(e.target, []);
     adjacency.get(e.source)!.push({ neighborId: e.target, edgeId: e.id });
-    adjacency.get(e.target)!.push({ neighborId: e.source, edgeId: e.id });
   }
 
   const results: string[][] = [];
@@ -36,4 +36,32 @@ export function findAllPaths(edges: Edge[], fromId: string, toId: string, maxHop
 
   dfs(fromId, 0);
   return results;
+}
+
+// Every node/edge reachable forward from a starting node, following edges
+// only in their stored direction (same rule as findAllPaths). Used for
+// hover-to-preview: unlike path-finding between two picked nodes, this has
+// no second endpoint and no path enumeration -- just one BFS/DFS sweep
+// marking everything downstream, so it's cheap even on a large graph.
+export function findDownstream(edges: Edge[], fromId: string): { nodeIds: Set<string>; edgeIds: Set<string> } {
+  const adjacency = new Map<string, Array<{ neighborId: string; edgeId: string }>>();
+  for (const e of edges) {
+    if (!adjacency.has(e.source)) adjacency.set(e.source, []);
+    adjacency.get(e.source)!.push({ neighborId: e.target, edgeId: e.id });
+  }
+
+  const nodeIds = new Set<string>([fromId]);
+  const edgeIds = new Set<string>();
+  const stack = [fromId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const { neighborId, edgeId } of adjacency.get(current) || []) {
+      edgeIds.add(edgeId);
+      if (!nodeIds.has(neighborId)) {
+        nodeIds.add(neighborId);
+        stack.push(neighborId);
+      }
+    }
+  }
+  return { nodeIds, edgeIds };
 }

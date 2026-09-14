@@ -65,11 +65,25 @@ export function fromDataFrames(series: DataFrame[]): { nodes: RawNode[]; relatio
   return { nodes: [...nodesById.values()], relationships: [...relsById.values()] };
 }
 
-function edgeStyle(type: string, protocol?: string): { stroke: string; dashed: boolean } {
-  if (type === 'TRADES_ON') return { stroke: '#64748b', dashed: true }; // slate-500
-  if (protocol === 'FIX') return { stroke: '#10b981', dashed: false }; // emerald-500
-  if (protocol === 'MQ') return { stroke: '#f59e0b', dashed: false }; // amber-500
-  return { stroke: '#3b82f6', dashed: false }; // blue-500, matches the reference's default line color
+const LINE_DASH_ARRAYS: Record<string, string> = {
+  dashed: '5 4',
+  dotted: '1 4',
+};
+
+export interface EdgeStyleConfig {
+  color: string;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+}
+
+// Generic label->style lookup, same idea as node type colors -- no
+// relationship type gets special-cased in code. Unmapped types fall back to
+// the blue/solid line that used to be the hardcoded default.
+function resolveEdgeStyle(
+  type: string,
+  edgeStyles: Record<string, EdgeStyleConfig>
+): { stroke: string; strokeDasharray?: string } {
+  const config = edgeStyles[type];
+  return { stroke: config?.color || '#3b82f6', strokeDasharray: config?.lineStyle ? LINE_DASH_ARRAYS[config.lineStyle] : undefined };
 }
 
 // The full label — used as a hover tooltip, where there's no space
@@ -109,33 +123,45 @@ function buildEdgeShortLabel(type: string, props: Record<string, any>): string {
 export function toFlowElements(
   rawNodes: RawNode[],
   rawRels: RawRelationship[],
-  labelColors: Record<string, string>
+  labelColors: Record<string, string>,
+  labelIcons: Record<string, string>,
+  edgeStyles: Record<string, EdgeStyleConfig>
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = rawNodes.map((n) => {
-    const label = n.labels[0] || 'Node';
-    const color = labelColors[label] || '#888';
+    const sublabel = n.labels.join(', ') || 'Node';
+    const colorLabel = n.labels.find((l) => labelColors[l]);
+    const color = (colorLabel && labelColors[colorLabel]) || '#888';
+    const iconLabel = n.labels.find((l) => labelIcons[l]);
+    const icon = iconLabel ? labelIcons[iconLabel] : undefined;
     return {
       id: n.id,
       type: 'topology',
       position: { x: 0, y: 0 }, // overwritten by the dagre layout pass
-      data: { label: `${n.properties.name ?? n.id}`, sublabel: label, color },
+      // Base transition so the opacity/box-shadow changes driven by hover,
+      // search, and path-selection fade in/out instead of cutting instantly
+      // -- an instant cut is what read as "flicker" once hover made these
+      // toggles frequent (moving the mouse across the canvas, not just a
+      // deliberate search or two-click path pick).
+      style: { transition: 'opacity 120ms ease, box-shadow 120ms ease' },
+      data: { label: `${n.properties.name ?? n.id}`, sublabel, color, icon, url: n.properties.url },
     };
   });
 
   const edges: Edge[] = rawRels.map((r) => {
-    const protocol = r.properties?.protocol;
-    const { stroke, dashed } = edgeStyle(r.type, protocol);
+    const { stroke, strokeDasharray } = resolveEdgeStyle(r.type, edgeStyles);
     const props = r.properties || {};
     return {
       id: r.id,
       type: 'topology',
       source: r.sourceId,
       target: r.targetId,
+      style: { transition: 'opacity 120ms ease' },
       data: {
         label: buildEdgeShortLabel(r.type, props),
         fullLabel: buildEdgeFullLabel(r.type, props),
         stroke,
-        dashed,
+        strokeDasharray,
+        url: props.url,
       },
       markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
     };

@@ -1,15 +1,26 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelProps } from '@grafana/data';
-import ReactFlow, { Background, Controls, Node, Edge, NodeChange } from 'reactflow';
+import { Icon, Input } from '@grafana/ui';
+import ReactFlow, { Background, Controls, Node, Edge, NodeChange, ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { TopologyPanelOptions } from '../types';
 import { fromDataFrames, toFlowElements } from '../utils/graphData';
 import { layout } from '../utils/layout';
-import { findAllPaths } from '../utils/pathfinding';
+import { findAllPaths, findDownstream } from '../utils/pathfinding';
 import { TopologyNode } from './TopologyNode';
 import { TopologyEdge } from './TopologyEdge';
 
 interface Props extends PanelProps<TopologyPanelOptions> {}
+
+// Only ever navigate to plain http(s) links -- a node/edge's `url` property
+// comes from graph data (Cypher run by whoever has write access), not from
+// this viewer's own user input, but guarding the scheme costs nothing and
+// rules out something like a stray `javascript:` value ever being opened.
+function openSafeUrl(url: string): void {
+  if (/^https?:\/\//i.test(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
 
 // Defined outside the component — React Flow requires nodeTypes/edgeTypes
 // to be referentially stable across renders, or it re-warns/re-inits every render.
@@ -28,6 +39,27 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
   // what connects them. Clicking blank canvas clears the selection.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  // The `fitView` prop only auto-fits once, on React Flow's own initial
+  // mount -- it doesn't refit when `nodes` changes later (new query
+  // results, a bigger dataset, etc.), which is exactly when a fresh fit is
+  // needed most. Capturing the instance and refitting imperatively in an
+  // effect keyed on `nodes` covers every data change, not just the first.
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+  // Free-text only, deliberately not Cypher -- this panel is read-only for
+  // viewers and shares its datasource connection with the Regulator panel's
+  // writes, so a live query box here would turn a read-only viewer into an
+  // arbitrary-query surface. Matches against the already-loaded name/labels,
+  // client-side, no new request sent.
+  const [searchText, setSearchText] = useState('');
+
+  // Hover-to-preview: mousing over a node highlights everything reachable
+  // forward from it, without needing to click. Only active when neither
+  // search nor a click-selected path is already showing something more
+  // deliberate -- those take precedence.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const hoverClearTimeoutRef = useRef<number | null>(null);
+
   // Dagre only supplies the *initial* layout — React Flow's own drag
   // interaction only sticks if we complete the controlled-component
   // contract ourselves: without onNodesChange feeding dragged positions
@@ -41,13 +73,42 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     [options.nodeTypeColors]
   );
 
+  const labelIcons = useMemo(
+    () =>
+      Object.fromEntries(
+        options.nodeTypeColors.filter((c) => c.icon).map((c) => [c.label, c.icon as string])
+      ),
+    [options.nodeTypeColors]
+  );
+
+  const edgeStyles = useMemo(
+    () =>
+      Object.fromEntries(options.edgeTypeColors.map((c) => [c.label, { color: c.color, lineStyle: c.lineStyle }])),
+    [options.edgeTypeColors]
+  );
+
   const { nodes, edges } = useMemo(() => {
     const { nodes: rawNodes, relationships: rawRels } = fromDataFrames(data.series);
-    const { nodes: flowNodes, edges: flowEdges } = toFlowElements(rawNodes, rawRels, labelColors);
+    const { nodes: flowNodes, edges: flowEdges } = toFlowElements(
+      rawNodes,
+      rawRels,
+      labelColors,
+      labelIcons,
+      edgeStyles
+    );
     const laidOut = layout(flowNodes, flowEdges);
     const withDrags = laidOut.map((n) => (draggedPositions[n.id] ? { ...n, position: draggedPositions[n.id] } : n));
     return { nodes: withDrags, edges: flowEdges };
-  }, [data.series, labelColors, draggedPositions]);
+  }, [data.series, labelColors, labelIcons, edgeStyles, draggedPositions]);
+
+  // Keyed on data.series (not `nodes`) so a manual drag -- which also
+  // changes `nodes` via draggedPositions -- doesn't fight the user by
+  // resetting their pan/zoom. Only a genuinely new/changed query result
+  // triggers a refit.
+  useEffect(() => {
+    if (!rfInstance) return;
+    rfInstance.fitView({ padding: 0.15, minZoom: 0.05 });
+  }, [rfInstance, data.series]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     // We only care about persisting drags — selection/dimension changes
@@ -64,6 +125,11 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
   }, []);
 
   const handleNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    const url = (node.data as { url?: string }).url;
+    if (!event.ctrlKey && !event.metaKey && url) {
+      openSafeUrl(url);
+      return;
+    }
     setSelectedIds((prev) => {
       if (event.ctrlKey || event.metaKey) {
         if (prev.includes(node.id)) return prev;
@@ -73,15 +139,102 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     });
   }, []);
 
+  const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
+    const url = (edge.data as { url?: string } | undefined)?.url;
+    if (url) openSafeUrl(url);
+  }, []);
+
   const handlePaneClick = useCallback(() => setSelectedIds([]), []);
+
+  // Moving the mouse directly from one node onto an adjacent one fires
+  // "leave" (old node) then "enter" (new node) as two separate events --
+  // clearing the highlight immediately on leave produces a one-frame flash
+  // of "nothing highlighted" in between, which reads as a flicker. Delaying
+  // the clear briefly, and cancelling it if a new node is entered first,
+  // makes that transition read as one smooth handoff instead.
+  const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (hoverClearTimeoutRef.current !== null) {
+      window.clearTimeout(hoverClearTimeoutRef.current);
+      hoverClearTimeoutRef.current = null;
+    }
+    setHoveredNodeId(node.id);
+  }, []);
+  const handleNodeMouseLeave = useCallback(() => {
+    hoverClearTimeoutRef.current = window.setTimeout(() => {
+      setHoveredNodeId(null);
+      hoverClearTimeoutRef.current = null;
+    }, 60);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hoverClearTimeoutRef.current !== null) window.clearTimeout(hoverClearTimeoutRef.current);
+    };
+  }, []);
+
+  const hasActiveSearch = searchText.trim().length > 0;
+
+  const searchMatchIds = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return new Set<string>();
+    return new Set(
+      nodes
+        .filter((n) => {
+          const label = String((n.data as { label?: string }).label ?? '').toLowerCase();
+          const sublabel = String((n.data as { sublabel?: string }).sublabel ?? '').toLowerCase();
+          return label.includes(q) || sublabel.includes(q);
+        })
+        .map((n) => n.id)
+    );
+  }, [nodes, searchText]);
 
   const paths = useMemo(() => {
     if (selectedIds.length !== 2) return [];
     return findAllPaths(edges, selectedIds[0], selectedIds[1]);
   }, [edges, selectedIds]);
 
+  const downstream = useMemo(
+    () => (hoveredNodeId ? findDownstream(edges, hoveredNodeId) : null),
+    [edges, hoveredNodeId]
+  );
+
   const { displayNodes, displayEdges } = useMemo(() => {
+    if (hasActiveSearch) {
+      const dNodes = nodes.map((n) => ({
+        ...n,
+        style: {
+          ...n.style,
+          opacity: searchMatchIds.has(n.id) ? 1 : 0.15,
+          boxShadow: searchMatchIds.has(n.id) ? '0 0 14px 4px rgba(250, 204, 21, 0.85)' : undefined,
+        },
+      }));
+      const dEdges = edges.map((e) => ({
+        ...e,
+        style: {
+          ...e.style,
+          opacity: searchMatchIds.has(e.source) || searchMatchIds.has(e.target) ? 0.6 : 0.08,
+        },
+      }));
+      return { displayNodes: dNodes, displayEdges: dEdges };
+    }
+
     if (selectedIds.length !== 2) {
+      if (downstream) {
+        const dNodes = nodes.map((n) => ({
+          ...n,
+          style: {
+            ...n.style,
+            opacity: downstream.nodeIds.has(n.id) ? 1 : 0.15,
+            boxShadow: n.id === hoveredNodeId ? '0 0 0 3px #10b981' : undefined,
+          },
+        }));
+        const dEdges = edges.map((e) => ({
+          ...e,
+          style: { ...e.style, opacity: downstream.edgeIds.has(e.id) ? 1 : 0.1 },
+          animated: downstream.edgeIds.has(e.id),
+        }));
+        return { displayNodes: dNodes, displayEdges: dEdges };
+      }
       return { displayNodes: nodes, displayEdges: edges };
     }
 
@@ -109,7 +262,7 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     }));
 
     return { displayNodes: dNodes, displayEdges: dEdges };
-  }, [nodes, edges, selectedIds, paths]);
+  }, [nodes, edges, selectedIds, paths, hasActiveSearch, searchMatchIds, downstream, hoveredNodeId]);
 
   if (data.series.length === 0) {
     return (
@@ -124,13 +277,27 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     selectedIds.length === 2
       ? paths.length > 0
         ? `${paths.length} path${paths.length > 1 ? 's' : ''} found`
-        : 'no path found within 6 hops'
+        : 'no path found within 10 hops'
       : selectedIds.length === 1
       ? 'Ctrl/Cmd-click a second node…'
       : null;
 
   return (
     <div style={{ ...style, position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 5, width: 200 }}>
+        <Input
+          prefix={<Icon name="search" />}
+          placeholder="Search nodes…"
+          value={searchText}
+          onChange={(e) => setSearchText(e.currentTarget.value)}
+          size="sm"
+        />
+        {hasActiveSearch && (
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, textAlign: 'right' }}>
+            {searchMatchIds.size} match{searchMatchIds.size === 1 ? '' : 'es'}
+          </div>
+        )}
+      </div>
       {selectionLabel && (
         <div
           style={{
@@ -156,8 +323,12 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         style={{ background: '#0b1120' }}
         onNodesChange={handleNodesChange}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
-        fitView
+        onNodeMouseEnter={handleNodeMouseEnter}
+        onNodeMouseLeave={handleNodeMouseLeave}
+        onInit={setRfInstance}
+        minZoom={0.05}
       >
         <Background />
         <Controls />

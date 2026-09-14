@@ -5,10 +5,11 @@ export interface TopologyEdgeData {
   label: string;
   fullLabel: string;
   stroke: string;
-  dashed: boolean;
+  strokeDasharray?: string;
+  url?: string;
 }
 
-// Nothing but the colored/dashed line is shown by default — a packed
+// Nothing but the colored line is shown by default — a packed
 // diagram has no room for permanent labels on every edge without them
 // colliding with each other and with node cards. Hovering the line reveals
 // the full detail (type, product/protocol, desks, condition) in a floating
@@ -31,7 +32,7 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
 
   return (
     <>
-      <g onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      <g onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{ cursor: data?.url ? 'pointer' : undefined }}>
         <BaseEdge
           id={id}
           path={edgePath}
@@ -40,7 +41,7 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
             ...style,
             stroke,
             strokeWidth: style?.strokeWidth ?? 2,
-            strokeDasharray: data?.dashed ? '5 4' : undefined,
+            strokeDasharray: data?.strokeDasharray,
           }}
         />
       </g>
@@ -65,6 +66,7 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
             }}
           >
             {data.fullLabel || data.label}
+            {data.url ? ' ↗' : ''}
           </div>
         </EdgeLabelRenderer>
       )}

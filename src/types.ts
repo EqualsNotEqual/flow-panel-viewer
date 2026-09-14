@@ -1,10 +1,18 @@
 export interface NodeTypeColor {
   label: string;
   color: string;
+  icon?: string;
+}
+
+export interface EdgeTypeColor {
+  label: string;
+  color: string;
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
 }
 
 export interface TopologyPanelOptions {
   nodeTypeColors: NodeTypeColor[];
+  edgeTypeColors: EdgeTypeColor[];
 }
 
 // These six are today's real business node types (trade topology's palette,
@@ -22,4 +30,9 @@ export const defaultTopologyPanelOptions: TopologyPanelOptions = {
     { label: 'Vendor', color: '#14b8a6' },
     { label: 'Host', color: '#6ee7b7' },
   ],
+  // No presets here (unlike nodeTypeColors) -- relationship types are
+  // whatever the schema in use happens to call them, with no fixed enum to
+  // pre-populate. Add a row per type as needed; anything unmapped falls
+  // back to the default blue used before this option existed.
+  edgeTypeColors: [],
 };

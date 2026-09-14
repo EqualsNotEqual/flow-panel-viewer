@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { EdgeProps, EdgeLabelRenderer, getStraightPath, MarkerType, BaseEdge } from 'reactflow';
+import { formatPropValue } from '../utils/graphData';
+import { useZoomTier } from '../utils/zoom';
 
 export interface TopologyEdgeData {
   label: string;
@@ -7,6 +9,8 @@ export interface TopologyEdgeData {
   stroke: string;
   strokeDasharray?: string;
   url?: string;
+  properties?: Record<string, any>;
+  showKeys?: string[];
 }
 
 // Nothing but the colored line is shown by default — a packed
@@ -26,6 +30,7 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
   markerEnd,
 }) => {
   const [hovered, setHovered] = useState(false);
+  const zoomTier = useZoomTier();
   const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
 
   const stroke = data?.stroke || '#3b82f6';
@@ -45,6 +50,34 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
           }}
         />
       </g>
+      {zoomTier === 'close' && data?.showKeys && data.showKeys.length > 0 && (
+        // Right-click "show this attribute" picks -- always visible, unlike
+        // the hover-only fullLabel below, since the whole point is not
+        // needing to hover to see it. Nudged up slightly so it doesn't sit
+        // exactly on top of the hover badge if both happen to be showing.
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 16}px)`,
+              pointerEvents: 'none',
+              background: '#1e293b',
+              border: `1px solid ${stroke}`,
+              borderRadius: 4,
+              padding: '2px 7px',
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: "'IBM Plex Mono', 'Courier New', monospace",
+              color: '#e2e8f0',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+              zIndex: 19,
+            }}
+          >
+            {data.showKeys.map((k) => `${k}: ${formatPropValue(data.properties?.[k])}`).join(' · ')}
+          </div>
+        </EdgeLabelRenderer>
+      )}
       {hovered && (data?.fullLabel || data?.label) && (
         <EdgeLabelRenderer>
           <div

@@ -70,6 +70,25 @@ const LINE_DASH_ARRAYS: Record<string, string> = {
   dotted: '1 4',
 };
 
+// Shared by TopologyNode/FilterNode/TopologyEdge for rendering a
+// user-picked property (via right-click "show this attribute") as
+// "key: value" text -- arrays join with commas rather than showing as
+// ["a","b"].
+export function formatPropValue(value: any): string {
+  return Array.isArray(value) ? value.join(', ') : String(value);
+}
+
+// A node/edge's own `displayAttribute` property (set like any other
+// property, e.g. through the Regulator panel) names which of its attributes
+// should always render visibly -- a shared, data-driven default, unlike the
+// viewer's local right-click picks which only affect the browser session
+// that made them. Normalizes a single string or a real Cypher list into a
+// plain string array either way.
+function normalizeDisplayAttribute(value: any): string[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value.map(String) : [String(value)];
+}
+
 export interface EdgeStyleConfig {
   color: string;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
@@ -143,7 +162,13 @@ export function toFlowElements(
         type: 'filter',
         position: { x: 0, y: 0 },
         style: baseStyle,
-        data: { label: `${n.properties.name ?? n.id}`, color, condition: n.properties.condition },
+        data: {
+          label: `${n.properties.name ?? n.id}`,
+          color,
+          condition: n.properties.condition,
+          properties: n.properties,
+          showKeys: normalizeDisplayAttribute(n.properties.displayAttribute),
+        },
       };
     }
 
@@ -160,7 +185,15 @@ export function toFlowElements(
       // toggles frequent (moving the mouse across the canvas, not just a
       // deliberate search or two-click path pick).
       style: baseStyle,
-      data: { label: `${n.properties.name ?? n.id}`, sublabel, color, icon, url: n.properties.url },
+      data: {
+        label: `${n.properties.name ?? n.id}`,
+        sublabel,
+        color,
+        icon,
+        url: n.properties.url,
+        properties: n.properties,
+        showKeys: normalizeDisplayAttribute(n.properties.displayAttribute),
+      },
     };
   });
 
@@ -179,6 +212,8 @@ export function toFlowElements(
         stroke,
         strokeDasharray,
         url: props.url,
+        properties: props,
+        showKeys: normalizeDisplayAttribute(props.displayAttribute),
       },
       markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
     };

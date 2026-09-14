@@ -70,6 +70,20 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
   // recomputed from data.series and never reflects the drag.
   const [draggedPositions, setDraggedPositions] = useState<Record<string, { x: number; y: number }>>({});
 
+  // Right-click a node/edge to pick which of its own attributes stay
+  // permanently visible on it (not just in the hover tooltip) -- e.g.
+  // "show product on this one edge". Per-element (keyed by id), not a
+  // type-wide default; survives a data refresh the same way draggedPositions
+  // does, since real Memgraph element ids are stable across refreshes.
+  const [visibleProps, setVisibleProps] = useState<Record<string, string[]>>({});
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    elementId: string;
+    properties: Record<string, any>;
+    defaultShowKeys: string[];
+  } | null>(null);
+
   const labelColors = useMemo(
     () => Object.fromEntries(options.nodeTypeColors.map((c) => [c.label, c.color])),
     [options.nodeTypeColors]
@@ -146,7 +160,43 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     if (url) openSafeUrl(url);
   }, []);
 
-  const handlePaneClick = useCallback(() => setSelectedIds([]), []);
+  const handlePaneClick = useCallback(() => {
+    setSelectedIds([]);
+    setContextMenu(null);
+  }, []);
+
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
+    event.preventDefault();
+    const nodeData = node.data as { properties?: Record<string, any>; showKeys?: string[] };
+    const { name, ...rest } = nodeData.properties || {}; // name's already the card's own bold label
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      elementId: node.id,
+      properties: rest,
+      defaultShowKeys: nodeData.showKeys || [],
+    });
+  }, []);
+
+  const handleEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
+    event.preventDefault();
+    const edgeData = edge.data as { properties?: Record<string, any>; showKeys?: string[] } | undefined;
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      elementId: edge.id,
+      properties: edgeData?.properties || {},
+      defaultShowKeys: edgeData?.showKeys || [],
+    });
+  }, []);
+
+  const toggleVisibleProp = useCallback((elementId: string, key: string) => {
+    setVisibleProps((prev) => {
+      const current = prev[elementId] || [];
+      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+      return { ...prev, [elementId]: next };
+    });
+  }, []);
 
   // Moving the mouse directly from one node onto an adjacent one fires
   // "leave" (old node) then "enter" (new node) as two separate events --
@@ -283,6 +333,30 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     return { displayNodes: dNodes, displayEdges: dEdges };
   }, [nodes, edges, selectedIds, paths, hasActiveSearch, searchMatchIds, neighbors, hoveredNodeId]);
 
+  // Layered on last, independent of which highlight branch above produced
+  // displayNodes/displayEdges -- so right-click picks keep showing
+  // regardless of whether search/hover/path-select is also active.
+  const finalDisplayNodes = useMemo(
+    () =>
+      displayNodes.map((n) => {
+        const override = visibleProps[n.id];
+        if (!override || override.length === 0) return n;
+        const existing = (n.data as { showKeys?: string[] }).showKeys || [];
+        return { ...n, data: { ...n.data, showKeys: Array.from(new Set([...existing, ...override])) } };
+      }),
+    [displayNodes, visibleProps]
+  );
+  const finalDisplayEdges = useMemo(
+    () =>
+      displayEdges.map((e) => {
+        const override = visibleProps[e.id];
+        if (!override || override.length === 0) return e;
+        const existing = (e.data as { showKeys?: string[] } | undefined)?.showKeys || [];
+        return { ...e, data: { ...e.data, showKeys: Array.from(new Set([...existing, ...override])) } };
+      }),
+    [displayEdges, visibleProps]
+  );
+
   if (data.series.length === 0) {
     return (
       <div style={{ ...style, padding: 12, color: '#94a3b8', fontFamily: 'monospace', fontSize: 12 }}>
@@ -335,8 +409,8 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         </div>
       )}
       <ReactFlow
-        nodes={displayNodes}
-        edges={displayEdges}
+        nodes={finalDisplayNodes}
+        edges={finalDisplayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         style={{ background: '#0b1120' }}
@@ -346,12 +420,75 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         onPaneClick={handlePaneClick}
         onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={handleNodeMouseLeave}
+        onNodeContextMenu={handleNodeContextMenu}
+        onEdgeContextMenu={handleEdgeContextMenu}
         onInit={setRfInstance}
         minZoom={0.05}
       >
         <Background />
         <Controls />
       </ReactFlow>
+      {contextMenu && (
+        <>
+          <div
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu(null);
+            }}
+            style={{ position: 'fixed', inset: 0, zIndex: 30 }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: contextMenu.y,
+              left: contextMenu.x,
+              zIndex: 31,
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: 6,
+              minWidth: 170,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              fontSize: 12,
+            }}
+          >
+            <div style={{ color: '#94a3b8', fontWeight: 600, padding: '2px 8px', marginBottom: 2 }}>
+              Show attribute
+            </div>
+            {Object.keys(contextMenu.properties).length === 0 ? (
+              <div style={{ color: '#64748b', padding: '4px 8px' }}>No attributes</div>
+            ) : (
+              Object.keys(contextMenu.properties).map((key) => {
+                const isDefault = contextMenu.defaultShowKeys.includes(key);
+                return (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 8px',
+                      cursor: isDefault ? 'default' : 'pointer',
+                      color: isDefault ? '#64748b' : '#e2e8f0',
+                    }}
+                    title={isDefault ? 'Shared default (set via displayAttribute) -- always shown for everyone' : undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isDefault || (visibleProps[contextMenu.elementId] || []).includes(key)}
+                      disabled={isDefault}
+                      onChange={() => toggleVisibleProp(contextMenu.elementId, key)}
+                    />
+                    {key}
+                    {isDefault && ' (default)'}
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };

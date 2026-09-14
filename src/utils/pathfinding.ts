@@ -38,30 +38,33 @@ export function findAllPaths(edges: Edge[], fromId: string, toId: string, maxHop
   return results;
 }
 
-// Every node/edge reachable forward from a starting node, following edges
-// only in their stored direction (same rule as findAllPaths). Used for
-// hover-to-preview: unlike path-finding between two picked nodes, this has
-// no second endpoint and no path enumeration -- just one BFS/DFS sweep
-// marking everything downstream, so it's cheap even on a large graph.
-export function findDownstream(edges: Edge[], fromId: string): { nodeIds: Set<string>; edgeIds: Set<string> } {
-  const adjacency = new Map<string, Array<{ neighborId: string; edgeId: string }>>();
-  for (const e of edges) {
-    if (!adjacency.has(e.source)) adjacency.set(e.source, []);
-    adjacency.get(e.source)!.push({ neighborId: e.target, edgeId: e.id });
-  }
+export interface Neighbors {
+  incomingNodeIds: Set<string>;
+  incomingEdgeIds: Set<string>;
+  outgoingNodeIds: Set<string>;
+  outgoingEdgeIds: Set<string>;
+}
 
-  const nodeIds = new Set<string>([fromId]);
-  const edgeIds = new Set<string>();
-  const stack = [fromId];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    for (const { neighborId, edgeId } of adjacency.get(current) || []) {
-      edgeIds.add(edgeId);
-      if (!nodeIds.has(neighborId)) {
-        nodeIds.add(neighborId);
-        stack.push(neighborId);
-      }
+// Every node/edge exactly one hop from a given node, split by direction.
+// Used for hover-to-preview: an "ego view" centered on the hovered node --
+// its direct predecessors and successors only, not the full forward chain
+// (which on a dense, many-hop graph like the ION routing pipeline dims
+// almost nothing and isn't actually more informative than just looking at
+// the whole diagram).
+export function findNeighbors(edges: Edge[], nodeId: string): Neighbors {
+  const incomingNodeIds = new Set<string>();
+  const incomingEdgeIds = new Set<string>();
+  const outgoingNodeIds = new Set<string>();
+  const outgoingEdgeIds = new Set<string>();
+  for (const e of edges) {
+    if (e.target === nodeId) {
+      incomingNodeIds.add(e.source);
+      incomingEdgeIds.add(e.id);
+    }
+    if (e.source === nodeId) {
+      outgoingNodeIds.add(e.target);
+      outgoingEdgeIds.add(e.id);
     }
   }
-  return { nodeIds, edgeIds };
+  return { incomingNodeIds, incomingEdgeIds, outgoingNodeIds, outgoingEdgeIds };
 }

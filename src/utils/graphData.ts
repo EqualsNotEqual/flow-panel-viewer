@@ -128,9 +128,26 @@ export function toFlowElements(
   edgeStyles: Record<string, EdgeStyleConfig>
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = rawNodes.map((n) => {
-    const sublabel = n.labels.join(', ') || 'Node';
     const colorLabel = n.labels.find((l) => labelColors[l]);
     const color = (colorLabel && labelColors[colorLabel]) || '#888';
+    const baseStyle = { transition: 'opacity 120ms ease, box-shadow 120ms ease' };
+
+    // Filter gates render as a diamond via a separate node type -- a
+    // decision/gate point, not a system/venue card -- with a deliberately
+    // minimal data shape (just a label + color), since the real detail
+    // (the condition) lives on the :FILTERS edge leaving it, not on the
+    // gate node itself.
+    if (n.labels.includes('Filter')) {
+      return {
+        id: n.id,
+        type: 'filter',
+        position: { x: 0, y: 0 },
+        style: baseStyle,
+        data: { label: `${n.properties.name ?? n.id}`, color, condition: n.properties.condition },
+      };
+    }
+
+    const sublabel = n.labels.join(', ') || 'Node';
     const iconLabel = n.labels.find((l) => labelIcons[l]);
     const icon = iconLabel ? labelIcons[iconLabel] : undefined;
     return {
@@ -142,7 +159,7 @@ export function toFlowElements(
       // -- an instant cut is what read as "flicker" once hover made these
       // toggles frequent (moving the mouse across the canvas, not just a
       // deliberate search or two-click path pick).
-      style: { transition: 'opacity 120ms ease, box-shadow 120ms ease' },
+      style: baseStyle,
       data: { label: `${n.properties.name ?? n.id}`, sublabel, color, icon, url: n.properties.url },
     };
   });

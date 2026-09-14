@@ -29,6 +29,7 @@ export const defaultTopologyPanelOptions: TopologyPanelOptions = {
     { label: 'Software', color: '#10b981' },
     { label: 'Vendor', color: '#14b8a6' },
     { label: 'Host', color: '#6ee7b7' },
+    { label: 'Filter', color: '#f59e0b' },
   ],
   // No presets here (unlike nodeTypeColors) -- relationship types are
   // whatever the schema in use happens to call them, with no fixed enum to

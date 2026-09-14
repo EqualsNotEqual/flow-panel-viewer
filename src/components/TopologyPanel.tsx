@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelProps } from '@grafana/data';
 import { Icon, Input } from '@grafana/ui';
-import ReactFlow, { Background, Controls, Node, Edge, NodeChange, ReactFlowInstance } from 'reactflow';
+import ReactFlow, { Background, Controls, MarkerType, Node, Edge, NodeChange, ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { TopologyPanelOptions } from '../types';
 import { fromDataFrames, toFlowElements } from '../utils/graphData';
 import { layout } from '../utils/layout';
-import { findAllPaths, findDownstream } from '../utils/pathfinding';
+import { findAllPaths, findNeighbors } from '../utils/pathfinding';
 import { TopologyNode } from './TopologyNode';
+import { FilterNode } from './FilterNode';
 import { TopologyEdge } from './TopologyEdge';
 
 interface Props extends PanelProps<TopologyPanelOptions> {}
@@ -24,7 +25,7 @@ function openSafeUrl(url: string): void {
 
 // Defined outside the component — React Flow requires nodeTypes/edgeTypes
 // to be referentially stable across renders, or it re-warns/re-inits every render.
-const nodeTypes = { topology: TopologyNode };
+const nodeTypes = { topology: TopologyNode, filter: FilterNode };
 const edgeTypes = { topology: TopologyEdge };
 
 // Read-only viewer. Data comes from Grafana's own query pipeline — whatever
@@ -53,10 +54,11 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
   // client-side, no new request sent.
   const [searchText, setSearchText] = useState('');
 
-  // Hover-to-preview: mousing over a node highlights everything reachable
-  // forward from it, without needing to click. Only active when neither
-  // search nor a click-selected path is already showing something more
-  // deliberate -- those take precedence.
+  // Hover-to-preview: mousing over a node centers an "ego view" on it --
+  // direct predecessors highlighted blue, direct successors green,
+  // everything beyond one hop dimmed. Only active when neither search nor
+  // a click-selected path is already showing something more deliberate --
+  // those take precedence.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const hoverClearTimeoutRef = useRef<number | null>(null);
 
@@ -193,8 +195,8 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     return findAllPaths(edges, selectedIds[0], selectedIds[1]);
   }, [edges, selectedIds]);
 
-  const downstream = useMemo(
-    () => (hoveredNodeId ? findDownstream(edges, hoveredNodeId) : null),
+  const neighbors = useMemo(
+    () => (hoveredNodeId ? findNeighbors(edges, hoveredNodeId) : null),
     [edges, hoveredNodeId]
   );
 
@@ -219,20 +221,37 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     }
 
     if (selectedIds.length !== 2) {
-      if (downstream) {
-        const dNodes = nodes.map((n) => ({
-          ...n,
-          style: {
-            ...n.style,
-            opacity: downstream.nodeIds.has(n.id) ? 1 : 0.15,
-            boxShadow: n.id === hoveredNodeId ? '0 0 0 3px #10b981' : undefined,
-          },
-        }));
-        const dEdges = edges.map((e) => ({
-          ...e,
-          style: { ...e.style, opacity: downstream.edgeIds.has(e.id) ? 1 : 0.1 },
-          animated: downstream.edgeIds.has(e.id),
-        }));
+      if (neighbors && hoveredNodeId) {
+        const INCOMING_COLOR = '#3b82f6'; // blue
+        const OUTGOING_COLOR = '#22c55e'; // green
+        const visibleNodeIds = new Set([hoveredNodeId, ...neighbors.incomingNodeIds, ...neighbors.outgoingNodeIds]);
+
+        const dNodes = nodes.map((n) => {
+          const isIncoming = neighbors.incomingNodeIds.has(n.id);
+          const isOutgoing = neighbors.outgoingNodeIds.has(n.id);
+          const overrideColor = isIncoming ? INCOMING_COLOR : isOutgoing ? OUTGOING_COLOR : undefined;
+          return {
+            ...n,
+            data: overrideColor ? { ...n.data, color: overrideColor } : n.data,
+            style: {
+              ...n.style,
+              opacity: visibleNodeIds.has(n.id) ? 1 : 0.15,
+              boxShadow: n.id === hoveredNodeId ? '0 0 0 3px #f8fafc' : undefined,
+            },
+          };
+        });
+        const dEdges = edges.map((e) => {
+          const isIncoming = neighbors.incomingEdgeIds.has(e.id);
+          const isOutgoing = neighbors.outgoingEdgeIds.has(e.id);
+          const overrideColor = isIncoming ? INCOMING_COLOR : isOutgoing ? OUTGOING_COLOR : undefined;
+          return {
+            ...e,
+            data: overrideColor ? { ...e.data, stroke: overrideColor } : e.data,
+            style: { ...e.style, opacity: isIncoming || isOutgoing ? 1 : 0.08 },
+            markerEnd: overrideColor ? { type: MarkerType.ArrowClosed, color: overrideColor } : e.markerEnd,
+            animated: isIncoming || isOutgoing,
+          };
+        });
         return { displayNodes: dNodes, displayEdges: dEdges };
       }
       return { displayNodes: nodes, displayEdges: edges };
@@ -262,7 +281,7 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     }));
 
     return { displayNodes: dNodes, displayEdges: dEdges };
-  }, [nodes, edges, selectedIds, paths, hasActiveSearch, searchMatchIds, downstream, hoveredNodeId]);
+  }, [nodes, edges, selectedIds, paths, hasActiveSearch, searchMatchIds, neighbors, hoveredNodeId]);
 
   if (data.series.length === 0) {
     return (

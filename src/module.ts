@@ -13,7 +13,7 @@ export const plugin = new PanelPlugin<TopologyPanelOptions>(TopologyPanel).setPa
       description:
         'Maps each node label (e.g. Desk, Venue) to the color -- and optionally icon -- it renders with. Add a row for any new label.',
       defaultValue: defaultTopologyPanelOptions.nodeTypeColors,
-      category: ['TradeFlow'],
+      category: ['Flow Options'],
       editor: NodeTypeColorEditor,
     })
     .addCustomEditor({
@@ -23,7 +23,17 @@ export const plugin = new PanelPlugin<TopologyPanelOptions>(TopologyPanel).setPa
       description:
         'Maps each relationship type (e.g. SENDS_TRADE_TO) to the color and line style its edge renders with. Unmapped types default to a solid blue line.',
       defaultValue: defaultTopologyPanelOptions.edgeTypeColors,
-      category: ['TradeFlow'],
+      category: ['Flow Options'],
       editor: EdgeTypeColorEditor,
+    })
+    .addBooleanSwitch({
+      path: 'groupByLabel',
+      name: 'Group by first label',
+      description:
+        'Clusters nodes sharing the same first assigned label together during layout (e.g. all Venue-first nodes ' +
+        'sit near each other), reusing the same first-label-wins ordering that already drives node color/icon. ' +
+        'Off by default -- a real change to layout shape, not just decoration.',
+      defaultValue: defaultTopologyPanelOptions.groupByLabel,
+      category: ['Flow Options'],
     });
 });

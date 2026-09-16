@@ -84,9 +84,17 @@ export function formatPropValue(value: any): string {
 // viewer's local right-click picks which only affect the browser session
 // that made them. Normalizes a single string or a real Cypher list into a
 // plain string array either way.
-function normalizeDisplayAttribute(value: any): string[] {
+export function normalizeDisplayAttribute(value: any): string[] {
   if (value == null) return [];
   return Array.isArray(value) ? value.map(String) : [String(value)];
+}
+
+// Not every node type uses `name` as its identifying property -- FlowInstance
+// uses `sys`, TradeFlow uses `flowId` -- so a node lacking `name` fell back
+// all the way to its raw Memgraph element id (a bare number, meaningless to
+// a viewer). Tries the common alternatives before giving up.
+function resolveNodeLabel(properties: Record<string, any>, id: string): string {
+  return String(properties.name ?? properties.sys ?? properties.flowId ?? id);
 }
 
 export interface EdgeStyleConfig {
@@ -150,6 +158,13 @@ export function toFlowElements(
     const colorLabel = n.labels.find((l) => labelColors[l]);
     const color = (colorLabel && labelColors[colorLabel]) || '#888';
     const baseStyle = { transition: 'opacity 120ms ease, box-shadow 120ms ease' };
+    // The true first-assigned label (Memgraph preserves creation order, e.g.
+    // CREATE (x:Venue:System) vs CREATE (x:System:Venue) -- same array-order
+    // control already relied on for color/icon), used as the "Group by
+    // label" layout key. Deliberately NOT colorLabel above: that's the first
+    // label with a *configured* color, which can differ from the true first
+    // label whenever the first one happens to have no color mapped.
+    const groupLabel = n.labels[0];
 
     // Filter gates render as a diamond via a separate node type -- a
     // decision/gate point, not a system/venue card -- with a deliberately
@@ -163,11 +178,12 @@ export function toFlowElements(
         position: { x: 0, y: 0 },
         style: baseStyle,
         data: {
-          label: `${n.properties.name ?? n.id}`,
+          label: resolveNodeLabel(n.properties, n.id),
           color,
           condition: n.properties.condition,
           properties: n.properties,
           showKeys: normalizeDisplayAttribute(n.properties.displayAttribute),
+          groupLabel,
         },
       };
     }
@@ -186,13 +202,14 @@ export function toFlowElements(
       // deliberate search or two-click path pick).
       style: baseStyle,
       data: {
-        label: `${n.properties.name ?? n.id}`,
+        label: resolveNodeLabel(n.properties, n.id),
         sublabel,
         color,
         icon,
         url: n.properties.url,
         properties: n.properties,
         showKeys: normalizeDisplayAttribute(n.properties.displayAttribute),
+        groupLabel,
       },
     };
   });

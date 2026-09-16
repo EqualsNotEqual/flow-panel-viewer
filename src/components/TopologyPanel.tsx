@@ -4,7 +4,7 @@ import { Icon, Input } from '@grafana/ui';
 import ReactFlow, { Background, Controls, MarkerType, Node, Edge, NodeChange, ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { TopologyPanelOptions } from '../types';
-import { fromDataFrames, toFlowElements } from '../utils/graphData';
+import { fromDataFrames, toFlowElements, normalizeDisplayAttribute } from '../utils/graphData';
 import { layout } from '../utils/layout';
 import { findAllPaths, findNeighbors } from '../utils/pathfinding';
 import { TopologyNode } from './TopologyNode';
@@ -84,6 +84,13 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     defaultShowKeys: string[];
   } | null>(null);
 
+  // Right-click blank canvas -- separate from the node/edge attribute menu
+  // above -- for "Reset layout": clearing draggedPositions falls back to a
+  // fresh dagre pass for every node in one shot, the undo manual dragging
+  // otherwise has no way to get back from (short of re-dragging everything
+  // by hand).
+  const [paneContextMenu, setPaneContextMenu] = useState<{ x: number; y: number } | null>(null);
+
   const labelColors = useMemo(
     () => Object.fromEntries(options.nodeTypeColors.map((c) => [c.label, c.color])),
     [options.nodeTypeColors]
@@ -112,19 +119,21 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
       labelIcons,
       edgeStyles
     );
-    const laidOut = layout(flowNodes, flowEdges);
+    const laidOut = layout(flowNodes, flowEdges, options.groupByLabel);
     const withDrags = laidOut.map((n) => (draggedPositions[n.id] ? { ...n, position: draggedPositions[n.id] } : n));
     return { nodes: withDrags, edges: flowEdges };
-  }, [data.series, labelColors, labelIcons, edgeStyles, draggedPositions]);
+  }, [data.series, labelColors, labelIcons, edgeStyles, options.groupByLabel, draggedPositions]);
 
-  // Keyed on data.series (not `nodes`) so a manual drag -- which also
-  // changes `nodes` via draggedPositions -- doesn't fight the user by
-  // resetting their pan/zoom. Only a genuinely new/changed query result
-  // triggers a refit.
+  // Keyed on data.request?.requestId (not `nodes` or even data.series) so a
+  // manual drag -- which also changes `nodes` via draggedPositions -- doesn't
+  // fight the user by resetting their pan/zoom, while a genuine refresh
+  // reliably refits even when the query returns identical data: Grafana
+  // mints a new requestId on every execution regardless of whether the
+  // result content (and thus data.series's own identity) actually changed.
   useEffect(() => {
     if (!rfInstance) return;
     rfInstance.fitView({ padding: 0.15, minZoom: 0.05 });
-  }, [rfInstance, data.series]);
+  }, [rfInstance, data.request?.requestId]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
     // We only care about persisting drags — selection/dimension changes
@@ -163,30 +172,54 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
   const handlePaneClick = useCallback(() => {
     setSelectedIds([]);
     setContextMenu(null);
+    setPaneContextMenu(null);
   }, []);
+
+  const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    setPaneContextMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  const handleResetLayout = useCallback(() => {
+    setDraggedPositions({});
+    setPaneContextMenu(null);
+    // Deferred to the next paint -- fitView reads committed DOM positions,
+    // and calling it synchronously here would race React's batched state
+    // update, measuring the old (still-dragged) layout instead of the fresh
+    // dagre one.
+    requestAnimationFrame(() => rfInstance?.fitView({ padding: 0.15, minZoom: 0.05 }));
+  }, [rfInstance]);
 
   const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
     event.preventDefault();
-    const nodeData = node.data as { properties?: Record<string, any>; showKeys?: string[] };
-    const { name, ...rest } = nodeData.properties || {}; // name's already the card's own bold label
+    const nodeData = node.data as { properties?: Record<string, any> };
+    // name's already the card's own bold label; displayAttribute is
+    // meta-configuration about what to show, not itself worth showing.
+    const { name, displayAttribute, ...rest } = nodeData.properties || {};
     setContextMenu({
       x: event.clientX,
       y: event.clientY,
       elementId: node.id,
       properties: rest,
-      defaultShowKeys: nodeData.showKeys || [],
+      // Computed straight from the raw property, never from node.data.showKeys
+      // -- that field is already the union of this default with any local
+      // right-click pick (see finalDisplayNodes), so reading it back here
+      // would misclassify a previous local pick as a locked-in default on
+      // the second right-click.
+      defaultShowKeys: normalizeDisplayAttribute(displayAttribute),
     });
   }, []);
 
   const handleEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
     event.preventDefault();
-    const edgeData = edge.data as { properties?: Record<string, any>; showKeys?: string[] } | undefined;
+    const edgeData = edge.data as { properties?: Record<string, any> } | undefined;
+    const { displayAttribute, ...rest } = edgeData?.properties || {};
     setContextMenu({
       x: event.clientX,
       y: event.clientY,
       elementId: edge.id,
-      properties: edgeData?.properties || {},
-      defaultShowKeys: edgeData?.showKeys || [],
+      properties: rest,
+      defaultShowKeys: normalizeDisplayAttribute(displayAttribute),
     });
   }, []);
 
@@ -422,6 +455,7 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         onNodeMouseLeave={handleNodeMouseLeave}
         onNodeContextMenu={handleNodeContextMenu}
         onEdgeContextMenu={handleEdgeContextMenu}
+        onPaneContextMenu={handlePaneContextMenu}
         onInit={setRfInstance}
         minZoom={0.05}
       >
@@ -486,6 +520,51 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
                 );
               })
             )}
+          </div>
+        </>
+      )}
+      {paneContextMenu && (
+        <>
+          <div
+            onClick={() => setPaneContextMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setPaneContextMenu(null);
+            }}
+            style={{ position: 'fixed', inset: 0, zIndex: 30 }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: paneContextMenu.y,
+              left: paneContextMenu.x,
+              zIndex: 31,
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              padding: 6,
+              minWidth: 150,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              fontSize: 12,
+            }}
+          >
+            <button
+              onClick={handleResetLayout}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '6px 8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#e2e8f0',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+              title="Discards any manually dragged positions and re-runs the automatic layout"
+            >
+              Reset layout
+            </button>
           </div>
         </>
       )}

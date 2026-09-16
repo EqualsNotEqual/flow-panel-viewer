@@ -13,6 +13,7 @@ export interface EdgeTypeColor {
 export interface TopologyPanelOptions {
   nodeTypeColors: NodeTypeColor[];
   edgeTypeColors: EdgeTypeColor[];
+  groupByLabel: boolean;
 }
 
 // These six are today's real business node types (trade topology's palette,
@@ -36,4 +37,11 @@ export const defaultTopologyPanelOptions: TopologyPanelOptions = {
   // pre-populate. Add a row per type as needed; anything unmapped falls
   // back to the default blue used before this option existed.
   edgeTypeColors: [],
+  // Off by default -- preserves every existing panel's current layout
+  // unchanged. Real layout-shape change, not just decoration: clusters
+  // nodes sharing a first label together, which helps when a label has many
+  // natural peers that should visually sit together but can pull nodes away
+  // from their actual position in a routing sequence elsewhere -- an
+  // explicit per-panel choice, not a new universal default.
+  groupByLabel: false,
 };

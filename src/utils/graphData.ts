@@ -100,6 +100,7 @@ function resolveNodeLabel(properties: Record<string, any>, id: string): string {
 export interface EdgeStyleConfig {
   color: string;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
+  animated?: boolean;
 }
 
 // Generic label->style lookup, same idea as node type colors -- no
@@ -108,9 +109,13 @@ export interface EdgeStyleConfig {
 function resolveEdgeStyle(
   type: string,
   edgeStyles: Record<string, EdgeStyleConfig>
-): { stroke: string; strokeDasharray?: string } {
+): { stroke: string; strokeDasharray?: string; animated: boolean } {
   const config = edgeStyles[type];
-  return { stroke: config?.color || '#3b82f6', strokeDasharray: config?.lineStyle ? LINE_DASH_ARRAYS[config.lineStyle] : undefined };
+  return {
+    stroke: config?.color || '#3b82f6',
+    strokeDasharray: config?.lineStyle ? LINE_DASH_ARRAYS[config.lineStyle] : undefined,
+    animated: !!config?.animated,
+  };
 }
 
 // The full label — used as a hover tooltip, where there's no space
@@ -215,7 +220,7 @@ export function toFlowElements(
   });
 
   const edges: Edge[] = rawRels.map((r) => {
-    const { stroke, strokeDasharray } = resolveEdgeStyle(r.type, edgeStyles);
+    const { stroke, strokeDasharray, animated } = resolveEdgeStyle(r.type, edgeStyles);
     const props = r.properties || {};
     return {
       id: r.id,
@@ -223,6 +228,7 @@ export function toFlowElements(
       source: r.sourceId,
       target: r.targetId,
       style: { transition: 'opacity 120ms ease' },
+      animated,
       data: {
         label: buildEdgeShortLabel(r.type, props),
         fullLabel: buildEdgeFullLabel(r.type, props),

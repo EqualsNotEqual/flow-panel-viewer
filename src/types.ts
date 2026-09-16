@@ -8,12 +8,17 @@ export interface EdgeTypeColor {
   label: string;
   color: string;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
+  // Reuses the same marching-ants effect already used for hover/path-select
+  // highlighting, applied as a per-type default instead -- e.g. marking a
+  // "primary processing flow" relationship type as always animated.
+  animated?: boolean;
 }
 
 export interface TopologyPanelOptions {
   nodeTypeColors: NodeTypeColor[];
   edgeTypeColors: EdgeTypeColor[];
   groupByLabel: boolean;
+  allowDragging: boolean;
 }
 
 // These six are today's real business node types (trade topology's palette,
@@ -44,4 +49,10 @@ export const defaultTopologyPanelOptions: TopologyPanelOptions = {
   // from their actual position in a routing sequence elsewhere -- an
   // explicit per-panel choice, not a new universal default.
   groupByLabel: false,
+  // Off by default going forward -- a clean auto-layout means dragging is
+  // rarely needed, and it was the sole source of the "spaghetti" problem
+  // Reset layout exists to fix in the first place. Still available as an
+  // explicit opt-in for a dashboard where the auto-layout genuinely needs a
+  // manual nudge somewhere.
+  allowDragging: false,
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { EdgeProps, EdgeLabelRenderer, getStraightPath, MarkerType, BaseEdge } from 'reactflow';
+import { EdgeProps, EdgeLabelRenderer, getBezierPath, MarkerType, BaseEdge } from 'reactflow';
 import { formatPropValue } from '../utils/graphData';
 import { useZoomTier } from '../utils/zoom';
 
@@ -23,15 +23,21 @@ export const TopologyEdge: React.FC<EdgeProps<TopologyEdgeData>> = ({
   id,
   sourceX,
   sourceY,
+  sourcePosition,
   targetX,
   targetY,
+  targetPosition,
   data,
   style,
   markerEnd,
 }) => {
   const [hovered, setHovered] = useState(false);
   const zoomTier = useZoomTier();
-  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
+  // Bezier over straight -- a smooth organic curve looks far less like
+  // crossed spaghetti on a dense graph than dead-straight diagonal lines,
+  // and (unlike step/orthogonal routing) never needs a per-edge special
+  // case to avoid an awkward right-angle bend around a specific node.
+  const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   const stroke = data?.stroke || '#3b82f6';
 

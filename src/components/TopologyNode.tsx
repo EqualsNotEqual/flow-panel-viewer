@@ -3,6 +3,7 @@ import { Handle, Position, NodeProps } from 'reactflow';
 import { Icon, toIconName } from '@grafana/ui';
 import { formatPropValue } from '../utils/graphData';
 import { useZoomTier } from '../utils/zoom';
+import { LUCIDE_ICONS } from '../utils/lucideIcons';
 
 export interface TopologyNodeData {
   label: string;
@@ -17,7 +18,11 @@ export interface TopologyNodeData {
 // Metrics/palette lifted from the reference mockup (Tailwind slate-950
 // background, bold slate-50 name + slate-400 type, 8px radius, 2px border).
 export const TopologyNode: React.FC<NodeProps<TopologyNodeData>> = ({ data }) => {
-  const iconName = data.icon ? toIconName(data.icon) : undefined;
+  // Lucide checked first -- real distinctive pictograms (building, server,
+  // database...) vs. Grafana's more general dashboard-chrome icon set,
+  // which is the fallback for any name not in the curated Lucide map.
+  const LucideIcon = data.icon ? LUCIDE_ICONS[data.icon] : undefined;
+  const iconName = !LucideIcon && data.icon ? toIconName(data.icon) : undefined;
   const zoomTier = useZoomTier();
   return (
     <div
@@ -37,6 +42,7 @@ export const TopologyNode: React.FC<NodeProps<TopologyNodeData>> = ({ data }) =>
       }}
     >
       <Handle type="target" position={Position.Left} style={{ background: data.color, border: 'none' }} />
+      {LucideIcon && <LucideIcon size={22} color={data.color} style={{ flexShrink: 0 }} />}
       {iconName && <Icon name={iconName} size="lg" style={{ color: data.color, flexShrink: 0 }} />}
       {zoomTier !== 'far' && (
         <div>

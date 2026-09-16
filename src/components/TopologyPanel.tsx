@@ -10,6 +10,7 @@ import { findAllPaths, findNeighbors } from '../utils/pathfinding';
 import { TopologyNode } from './TopologyNode';
 import { FilterNode } from './FilterNode';
 import { TopologyEdge } from './TopologyEdge';
+import { EdgeLegend } from './EdgeLegend';
 
 interface Props extends PanelProps<TopologyPanelOptions> {}
 
@@ -106,7 +107,9 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
 
   const edgeStyles = useMemo(
     () =>
-      Object.fromEntries(options.edgeTypeColors.map((c) => [c.label, { color: c.color, lineStyle: c.lineStyle }])),
+      Object.fromEntries(
+        options.edgeTypeColors.map((c) => [c.label, { color: c.color, lineStyle: c.lineStyle, animated: c.animated }])
+      ),
     [options.edgeTypeColors]
   );
 
@@ -175,10 +178,17 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
     setPaneContextMenu(null);
   }, []);
 
-  const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-    setPaneContextMenu({ x: event.clientX, y: event.clientY });
-  }, []);
+  const handlePaneContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      // Reset layout is the only thing this menu offers, and it's only
+      // meaningful when dragging can actually happen -- with dragging off,
+      // let the browser's own right-click menu show instead of an empty box.
+      if (!options.allowDragging) return;
+      event.preventDefault();
+      setPaneContextMenu({ x: event.clientX, y: event.clientY });
+    },
+    [options.allowDragging]
+  );
 
   const handleResetLayout = useCallback(() => {
     setDraggedPositions({});
@@ -446,7 +456,17 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         edges={finalDisplayEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        style={{ background: '#0b1120' }}
+        style={{
+          // A subtle ambient glow (two soft radial gradients) instead of a
+          // flat fill -- pure CSS, no extra DOM nodes, no cost to a live,
+          // ever-changing diagram the way a hand-placed background image
+          // would be.
+          background:
+            'radial-gradient(ellipse 800px 500px at 20% 15%, rgba(8,47,73,0.35), transparent 60%),' +
+            'radial-gradient(ellipse 900px 600px at 85% 85%, rgba(30,58,95,0.3), transparent 60%),' +
+            '#0b1120',
+        }}
+        nodesDraggable={options.allowDragging}
         onNodesChange={handleNodesChange}
         onNodeClick={handleNodeClick}
         onEdgeClick={handleEdgeClick}
@@ -462,6 +482,7 @@ export const TopologyPanel: React.FC<Props> = ({ width, height, data, options })
         <Background />
         <Controls />
       </ReactFlow>
+      <EdgeLegend edgeTypeColors={options.edgeTypeColors} />
       {contextMenu && (
         <>
           <div

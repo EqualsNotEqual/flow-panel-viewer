@@ -53,6 +53,14 @@ export const EdgeTypeColorEditor: React.FC<StandardEditorProps<EdgeTypeColor[]>>
             onChange={(opt) => updateRow(i, { lineStyle: opt?.value })}
             width={16}
           />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={!!row.animated}
+              onChange={(e) => updateRow(i, { animated: e.currentTarget.checked })}
+            />
+            Animated
+          </label>
           <IconButton name="trash-alt" aria-label="Remove" onClick={() => removeRow(i)} />
         </div>
       ))}

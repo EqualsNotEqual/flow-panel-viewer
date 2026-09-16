@@ -35,5 +35,15 @@ export const plugin = new PanelPlugin<TopologyPanelOptions>(TopologyPanel).setPa
         'Off by default -- a real change to layout shape, not just decoration.',
       defaultValue: defaultTopologyPanelOptions.groupByLabel,
       category: ['Flow Options'],
+    })
+    .addBooleanSwitch({
+      path: 'allowDragging',
+      name: 'Allow manual repositioning',
+      description:
+        'Lets a viewer drag nodes to nudge the layout, with a right-click "Reset layout" to undo it. Off by ' +
+        'default -- a clean auto-layout rarely needs manual adjustment, and dragging is the only way this panel ' +
+        'ever gets into a tangled state in the first place.',
+      defaultValue: defaultTopologyPanelOptions.allowDragging,
+      category: ['Flow Options'],
     });
 });
